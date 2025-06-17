@@ -1,0 +1,39 @@
+# Core
+python-telegram-bot==20.7
+python-dotenv==1.0.0
+
+# Database
+pymongo==4.6.1
+redis==5.0.1
+motor==3.3.2  # Async MongoDB
+
+# Download & Media Processing
+yt-dlp==2024.1.14
+ffmpeg-python==0.2.0
+Pillow==10.2.0
+mutagen==1.47.0  # Audio metadata
+
+# Task Queue
+celery==5.3.4
+flower==2.0.1  # Celery monitoring
+
+# Payment
+requests==2.31.0
+cryptography==41.0.7  # For payment verification
+
+# Utils
+aiofiles==23.2.1
+aiohttp==3.9.1
+humanize==4.9.0
+pytz==2023.3
+jdatetime==5.0.0  # تاریخ شمسی
+
+# Monitoring & Logging
+sentry-sdk==1.39.1
+loguru==0.7.2
+
+# Development
+pytest==7.4.4
+pytest-asyncio==0.23.3
+black==23.12.1
+flake8==7.0.0
