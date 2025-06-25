@@ -1,8 +1,13 @@
 import logging
+import asyncio
 from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from typing import List, Dict, Any, Optional
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, filters
 from telegram.constants import ParseMode
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
+from collections import defaultdict
 
 from database import (
     get_user,
@@ -255,11 +260,249 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error confirming payment: {e}")
         await query.answer("❌ خطا در تایید پرداخت. لطفا دوباره امتحان کنید.", show_alert=True)
 
-# Create command handler
+# Helper functions
+def get_basic_stats(db: Session) -> Dict[str, Any]:
+    """Get basic statistics about users, subscriptions, and downloads."""
+    from database import User, Subscription, Download, Payment
+    
+    stats = {}
+    
+    # User counts
+    stats['total_users'] = db.query(User).count()
+    
+    # Subscription stats
+    stats['active_subscriptions'] = db.query(Subscription).filter(
+        Subscription.is_active == True,
+        Subscription.end_date > datetime.utcnow()
+    ).count()
+    
+    # Payment stats
+    payment_stats = db.query(
+        func.sum(Payment.amount).label('total_earnings'),
+        func.count().label('total_payments')
+    ).filter(
+        Payment.status == 'completed'
+    ).first()
+    
+    stats['total_earnings'] = payment_stats.total_earnings or 0
+    stats['total_payments'] = payment_stats.total_payments or 0
+    
+    # Download stats
+    stats['total_downloads'] = db.query(Download).count()
+    
+    # Downloads by type
+    downloads_by_type = db.query(
+        Download.content_type,
+        func.count(Download.id).label('count')
+    ).group_by(Download.content_type).all()
+    
+    stats['downloads_by_type'] = dict(downloads_by_type)
+    
+    return stats
+
+# Command Handlers
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show bot statistics."""
+    db = next(context.bot_data['db_session_generator']())
+    try:
+        stats = get_basic_stats(db)
+        
+        text = ("📊 *آمار ربات*\n\n"
+               f"👥 تعداد کل کاربران: {stats['total_users']:,}\n"
+               f"✅ اشتراک‌های فعال: {stats['active_subscriptions']:,}\n"
+               f"💰 درآمد کل: {format_price(stats['total_earnings'])}\n"
+               f"💳 تعداد پرداخت‌ها: {stats['total_payments']:,}\n"
+               f"📥 تعداد کل دانلودها: {stats['total_downloads']:,}\n\n")
+        
+        # Add downloads by type
+        if stats['downloads_by_type']:
+            text += "📥 *تعداد دانلودها بر اساس نوع:*\n"
+            for content_type, count in stats['downloads_by_type'].items():
+                text += f"  • {content_type}: {count:,}\n"
+        
+        await update.message.reply_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_to_message_id=update.message.message_id
+        )
+    except Exception as e:
+        logger.error(f"Error in stats command: {e}", exc_info=True)
+        await update.message.reply_text("❌ خطا در دریافت آمار. لطفاً دوباره تلاش کنید.")
+    finally:
+        db.close()
+
+async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List users with pagination."""
+    db = next(context.bot_data['db_session_generator']())
+    try:
+        from database import User, Subscription
+        
+        # Get pagination parameters
+        page = int(context.args[0]) if context.args and context.args[0].isdigit() else 1
+        per_page = 10
+        
+        # Get users with subscription info
+        users = db.query(
+            User,
+            Subscription
+        ).outerjoin(
+            Subscription, 
+            (User.id == Subscription.user_id) & (Subscription.is_active == True)
+        ).order_by(
+            User.created_at.desc()
+        ).limit(per_page).offset((page - 1) * per_page).all()
+        
+        total_users = db.query(User).count()
+        
+        # Format user list
+        text = f"👥 *لیست کاربران* (صفحه {page:,})\n\n"
+        
+        for i, (user, subscription) in enumerate(users, 1):
+            user_info = f"{i + (page-1)*per_page}. "
+            user_info += f"<a href='tg://user?id={user.telegram_id}'>{user.full_name or 'بدون نام'}</a>"
+            
+            if user.username:
+                user_info += f" (@{user.username})"
+                
+            if subscription:
+                user_info += f"\n   📅 اشتراک: {subscription.plan.name} (تا {subscription.end_date.strftime('%Y-%m-%d')})"
+            else:
+                user_info += "\n   ⭕ بدون اشتراک"
+                
+            text += user_info + "\n\n"
+        
+        # Add pagination buttons
+        total_pages = (total_users + per_page - 1) // per_page
+        
+        keyboard = []
+        if page > 1:
+            keyboard.append(InlineKeyboardButton("⬅️ صفحه قبل", callback_data=f"admin_users_{page-1}"))
+        if page < total_pages:
+            if keyboard:  # If there's a previous button, add next to the same row
+                keyboard.append(InlineKeyboardButton("صفحه بعد ➡️", callback_data=f"admin_users_{page+1}"))
+            else:
+                keyboard = [InlineKeyboardButton("صفحه بعد ➡️", callback_data=f"admin_users_{page+1}")]
+        
+        reply_markup = InlineKeyboardMarkup([keyboard]) if keyboard else None
+        
+        await update.message.reply_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup,
+            disable_web_page_preview=True
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in list_users command: {e}", exc_info=True)
+        await update.message.reply_text("❌ خطا در دریافت لیست کاربران. لطفاً دوباره تلاش کنید.")
+    finally:
+        db.close()
+
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Broadcast a message to all users."""
+    if not context.args:
+        await update.message.reply_text(
+            "✍️ لطفاً پیام خود را بعد از دستور بنویسید. مثال:\n"
+            "`/broadcast سلام به همه کاربران عزیز!`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    # Ask for confirmation
+    message_text = ' '.join(context.args)
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ تایید ارسال", callback_data=f"broadcast_confirm_{message_text[:30]}..."),
+            InlineKeyboardButton("❌ انصراف", callback_data="broadcast_cancel")
+        ]
+    ]
+    
+    await update.message.reply_text(
+        f"⚠️ آیا مطمئن هستید که می‌خواهید این پیام را برای همه کاربران ارسال کنید؟\n\n{message_text}",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle broadcast confirmation."""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "broadcast_cancel":
+        await query.message.edit_text("❌ ارسال پیام همگانی لغو شد.")
+        return
+    
+    # Extract message text from callback data
+    message_text = query.data.replace("broadcast_confirm_", "").strip()
+    
+    # Get all users
+    db = next(context.bot_data['db_session_generator']())
+    try:
+        from database import User
+        users = db.query(User).all()
+        total_users = len(users)
+        
+        # Send message to each user
+        success = 0
+        failed = 0
+        
+        await query.message.edit_text(f"🔄 در حال ارسال پیام به {total_users} کاربر...")
+        
+        for user in users:
+            try:
+                await context.bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=message_text,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                success += 1
+                await asyncio.sleep(0.05)  # Rate limiting
+            except Exception as e:
+                logger.error(f"Error sending broadcast to user {user.id}: {e}")
+                failed += 1
+                
+        # Send report
+        report = (
+            f"✅ ارسال پیام همگانی به پایان رسید\n\n"
+            f"📊 آمار ارسال:\n"
+            f"• تعداد کل کاربران: {total_users}\n"
+            f"• ارسال موفق: {success}\n"
+            f"• ارسال ناموفق: {failed}"
+        )
+        
+        await query.message.edit_text(report)
+        
+    except Exception as e:
+        logger.error(f"Error in broadcast_confirm: {e}", exc_info=True)
+        await query.message.edit_text("❌ خطا در ارسال پیام همگانی. لطفاً دوباره تلاش کنید.")
+    finally:
+        db.close()
+
+# Create command handlers
 admin_handler = CommandHandler("admin", admin_panel)
+stats_handler = CommandHandler("stats", stats)
+users_handler = CommandHandler("users", list_users)
+broadcast_handler = CommandHandler("broadcast", broadcast, filters=filters.ChatType.PRIVATE)
 
 # Create callback query handlers
-admin_callback = CallbackQueryHandler(admin_panel, pattern="^admin$")
-admin_stats_callback = CallbackQueryHandler(admin_stats, pattern="^admin_stats$")
-admin_payments_callback = CallbackQueryHandler(admin_payments, pattern="^admin_payments$")
-confirm_payment_callback = CallbackQueryHandler(confirm_payment, pattern="^confirm_payment:")
+admin_callback_handler = CallbackQueryHandler(admin_button, pattern="^admin_")
+confirm_payment_handler = CallbackQueryHandler(confirm_payment, pattern="^confirm_payment_")
+broadcast_callback_handler = CallbackQueryHandler(broadcast_confirm, pattern="^broadcast_")
+
+# Export handlers
+handlers = [
+    admin_handler,
+    stats_handler,
+    users_handler,
+    broadcast_handler,
+    admin_callback_handler,
+    confirm_payment_handler,
+    broadcast_callback_handler,
+]
+
+# Admin commands for bot setup
+ADMIN_COMMANDS = [
+    BotCommand("admin", "پنل مدیریت"),
+    BotCommand("stats", "آمار ربات"),
+    BotCommand("users", "لیست کاربران"),
+    BotCommand("broadcast", "ارسال پیام همگانی"),
+]
