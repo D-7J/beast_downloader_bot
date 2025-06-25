@@ -12,7 +12,7 @@ from database import (
     SubscriptionPlan,
     record_download,
 )
-from config import config, PLAN_LIMITS
+from config import PLAN_LIMITS
 
 logger = logging.getLogger(__name__)
 

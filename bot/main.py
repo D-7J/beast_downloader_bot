@@ -33,11 +33,23 @@ from bot.handlers import (
     download as download_handler,
 )
 from bot.middleware import setup_middlewares
-from database import Base, get_db_url
-from config import config
+from database import Base
+from config import (
+    BOT_TOKEN,
+    DATABASE_URL,
+    ADMIN_IDS,
+    LOG_LEVEL,
+    WEBHOOK_MODE,
+    WEBHOOK_LISTEN,
+    WEBHOOK_PORT,
+    WEBHOOK_URL,
+    WEBHOOK_SSL_CERT,
+    WEBHOOK_SSL_PRIV,
+)
 
-from database import init_db, get_db
-from config import config
+
+
+
 
 # Load environment variables
 load_dotenv()
@@ -45,12 +57,12 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+    level=logging.getLevelName(LOG_LEVEL),
 )
 logger = logging.getLogger(__name__)
 
 # Initialize database
-engine = create_engine(get_db_url())
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Create database tables
@@ -108,7 +120,7 @@ def setup_handlers(application: Application) -> None:
         application.add_handler(CommandHandler(command, callback))
     
     # Admin command handlers
-    admin_filter = filters.User(username=config.ADMIN_USERNAMES)
+    admin_filter = filters.User(user_id=ADMIN_IDS)
     admin_handlers = [
         ("admin", admin_handler.admin),
         ("stats", admin_handler.stats),
@@ -152,7 +164,7 @@ async def post_init(application: Application) -> None:
     ])
     
     # Set admin commands for admin users
-    if config.ADMIN_USERNAMES:
+    if ADMIN_IDS:
         admin_commands = [
             ("admin", "پنل مدیریت"),
             ("stats", "آمار ربات"),
@@ -164,7 +176,7 @@ async def post_init(application: Application) -> None:
         for scope_type in ["all_private_chats", "all_group_chats"]:
             await application.bot.set_my_commands(
                 [BotCommand(cmd, desc) for cmd, desc in admin_commands],
-                scope={"type": scope_type, "user_ids": [int(id) for id in config.ADMIN_IDS]}
+                                scope={"type": scope_type, "user_ids": ADMIN_IDS}
             )
     
     # Store database session generator in bot_data for use in handlers
@@ -178,7 +190,7 @@ def main() -> None:
     # Create the Application with persistence and context settings
     application = (
         ApplicationBuilder()
-        .token(config.BOT_TOKEN)
+        .token(BOT_TOKEN)
         .post_init(post_init)
         .concurrent_updates(True)  # Enable handling updates in parallel
         .build()
@@ -188,15 +200,15 @@ def main() -> None:
     setup_handlers(application)
     
     # Start the Bot
-    if config.WEBHOOK_MODE:
+    if WEBHOOK_MODE:
         # Webhook mode for production
         application.run_webhook(
-            listen=config.WEBHOOK_LISTEN,
-            port=config.WEBHOOK_PORT,
-            url_path=config.BOT_TOKEN,
-            webhook_url=f"{config.WEBHOOK_URL}/{config.BOT_TOKEN}",
-            cert=config.WEBHOOK_SSL_CERT,
-            key=config.WEBHOOK_SSL_PRIV,
+            listen=WEBHOOK_LISTEN,
+            port=int(WEBHOOK_PORT),
+            url_path=BOT_TOKEN,
+            webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}",
+            cert=WEBHOOK_SSL_CERT,
+            key=WEBHOOK_SSL_PRIV,
             drop_pending_updates=True,
         )
     else:
