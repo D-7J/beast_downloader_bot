@@ -3,7 +3,7 @@ Middleware for enforcing subscription plan limits and features.
 """
 from typing import Callable, Awaitable, Dict, Any, Optional
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, CommandHandler
 from datetime import datetime, timedelta
 import logging
 
@@ -128,9 +128,10 @@ def setup_middlewares(application):
     """Set up all middleware for the application."""
     # Wrap handlers with middleware
     for handler in application.handlers[0]:
-        # Skip command handlers that don't need middleware
-        if any(cmd in ['start', 'help', 'buy'] for cmd in handler.commands):
-            continue
+        # Skip specific command handlers that don't need middleware
+        if isinstance(handler, CommandHandler):
+            if any(cmd in ['start', 'help', 'buy'] for cmd in handler.commands):
+                continue
             
         # Apply middleware to message handlers
         if hasattr(handler, 'filters') and handler.filters is not None:
