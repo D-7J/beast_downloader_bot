@@ -30,7 +30,7 @@ from bot.handlers import (
     help as help_handler,
     buy as buy_handler,
     admin as admin_handler,
-    download as download_handler,
+    download as download_handlers_module,
 )
 from bot.middleware import setup_middlewares
 from database import Base
@@ -141,11 +141,9 @@ def setup_handlers(application: Application) -> None:
     for pattern, callback in callback_handlers:
         application.add_handler(CallbackQueryHandler(callback, pattern=pattern))
     
-    # Message handler for downloads (must be last)
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        download_handler.handle_download
-    ))
+    # Add download handlers
+    for handler in download_handlers_module.handlers:
+        application.add_handler(handler)
     
     # Set up middleware
     setup_middlewares(application)

@@ -453,3 +453,10 @@ cancel_download_handler = CallbackQueryHandler(
     cancel_download,
     pattern="^cancel_download$"
 )
+
+# Export handlers
+handlers = [
+    download_handler,
+    download_callback,
+    cancel_download_handler,
+]
