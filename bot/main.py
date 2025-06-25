@@ -122,7 +122,7 @@ def setup_handlers(application: Application) -> None:
     # Admin command handlers
     admin_filter = filters.User(user_id=ADMIN_IDS)
     admin_handlers = [
-        ("admin", admin_handler.admin),
+        ("admin", admin_handler.admin_panel),
         ("stats", admin_handler.stats),
         ("users", admin_handler.list_users),
         ("broadcast", admin_handler.broadcast),
