@@ -18,6 +18,14 @@ REDIS_DB = int(os.getenv("REDIS_DB", 0))
 # Admin user IDs (comma-separated)
 ADMIN_IDS = [int(id_str) for id_str in os.getenv("ADMIN_IDS", "").split(",") if id_str]
 
+# Webhook configuration (for production deployment)
+WEBHOOK_MODE = os.getenv("WEBHOOK_MODE", "False").lower() in ('true', '1', 't')
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
+WEBHOOK_LISTEN = os.getenv("WEBHOOK_LISTEN", "0.0.0.0")
+WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", 8443))
+WEBHOOK_SSL_CERT = os.getenv("WEBHOOK_SSL_CERT", "")
+WEBHOOK_SSL_PRIV = os.getenv("WEBHOOK_SSL_PRIV", "")
+
 from enum import Enum, auto
 
 # Subscription plans
