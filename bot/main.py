@@ -47,10 +47,6 @@ from config import (
     WEBHOOK_SSL_PRIV,
 )
 
-
-
-
-
 # Load environment variables
 load_dotenv()
 
@@ -61,25 +57,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize database
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+class DatabaseManager:
+    """Manages database connections and sessions."""
+    
+    def __init__(self, database_url: str):
+        self.engine = create_engine(database_url)
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        
+        # Create database tables
+        Base.metadata.create_all(bind=self.engine)
+    
+    def get_db(self):
+        """Get a database session."""
+        db = self.SessionLocal()
+        try:
+            return db
+        except Exception as e:
+            logger.error(f"Error getting database session: {e}")
+            db.close()
+            raise
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
-
-def get_db_session():
-    """Get a database session."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# Initialize database manager
+db_manager = DatabaseManager(DATABASE_URL)
 
 # Disable some noisy logs
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
-
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log errors and send a message to the user if possible."""
@@ -98,14 +101,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         "Exception while handling an update:",
         exc_info=context.error
     )
-    
-    # Close any open database sessions
-    if 'db' in context.bot_data:
-        try:
-            context.bot_data['db'].close()
-        except Exception as e:
-            logger.error(f"Error closing database connection: {e}")
-
 
 def setup_handlers(application: Application) -> None:
     """Set up all the handlers for the bot."""
@@ -120,7 +115,7 @@ def setup_handlers(application: Application) -> None:
         application.add_handler(CommandHandler(command, callback))
     
     # Admin command handlers
-    admin_filter = filters.User(user_id=ADMIN_IDS)
+    admin_filter = filters.User(user_id=ADMIN_IDS) if ADMIN_IDS else None
     admin_handlers = [
         ("admin", admin_handler.admin_panel),
         ("stats", admin_handler.stats),
@@ -151,9 +146,11 @@ def setup_handlers(application: Application) -> None:
     # Error handler
     application.add_error_handler(error_handler)
 
-
 async def post_init(application: Application) -> None:
     """Configure bot commands and other post-initialization tasks."""
+    # Store database manager in bot_data for use in handlers
+    application.bot_data['db_manager'] = db_manager
+    
     # Set bot commands for regular users
     await application.bot.set_my_commands([
         BotCommand("start", "شروع کار با ربات"),
@@ -174,14 +171,10 @@ async def post_init(application: Application) -> None:
         for scope_type in ["all_private_chats", "all_group_chats"]:
             await application.bot.set_my_commands(
                 [BotCommand(cmd, desc) for cmd, desc in admin_commands],
-                                scope={"type": scope_type, "user_ids": ADMIN_IDS}
+                scope={"type": scope_type, "user_ids": ADMIN_IDS}
             )
     
-    # Store database session generator in bot_data for use in handlers
-    application.bot_data['db_session_generator'] = get_db_session
-    
     logger.info("Bot is ready to receive updates")
-
 
 def main() -> None:
     """Start the bot."""
@@ -200,19 +193,24 @@ def main() -> None:
     # Start the Bot
     if WEBHOOK_MODE:
         # Webhook mode for production
+        webhook_path = f"/webhook/{BOT_TOKEN}"
+        webhook_url = f"{WEBHOOK_URL.rstrip('/')}{webhook_path}"
+        
+        logger.info(f"Starting webhook on {webhook_url}")
+        
         application.run_webhook(
             listen=WEBHOOK_LISTEN,
             port=int(WEBHOOK_PORT),
-            url_path=BOT_TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}",
+            url_path=webhook_path,
+            webhook_url=webhook_url,
             cert=WEBHOOK_SSL_CERT,
             key=WEBHOOK_SSL_PRIV,
             drop_pending_updates=True,
         )
     else:
         # Polling mode for development
+        logger.info("Starting in polling mode...")
         application.run_polling(drop_pending_updates=True)
-
 
 if __name__ == "__main__":
     try:
