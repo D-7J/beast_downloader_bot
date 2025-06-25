@@ -477,6 +477,29 @@ async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     finally:
         db.close()
 
+async def admin_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle admin button callbacks."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract action and data from callback data
+    callback_data = query.data.split('_', 1)
+    if len(callback_data) < 2:
+        return
+        
+    action = callback_data[1].split('_')[0]
+    
+    if action == 'payments':
+        await admin_payments(update, context)
+    elif action == 'stats':
+        await admin_stats(update, context)
+    elif action == 'users':
+        await list_users(update, context)
+    elif action == 'broadcast':
+        await broadcast(update, context)
+    else:
+        await admin_panel(update, context)
+
 # Create command handlers
 admin_handler = CommandHandler("admin", admin_panel)
 stats_handler = CommandHandler("stats", stats)

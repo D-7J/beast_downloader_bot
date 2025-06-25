@@ -101,7 +101,7 @@ def setup_handlers(application: Application) -> None:
     command_handlers = [
         ("start", start_handler.start),
         ("help", help_handler.help_command),
-        ("buy", buy_handler.buy),
+        ("buy", buy_handler.buy_plan),
     ]
     
     for command, callback in command_handlers:
@@ -121,7 +121,8 @@ def setup_handlers(application: Application) -> None:
     
     # Callback query handlers
     callback_handlers = [
-        ("^plan_", buy_handler.button),
+        ("^buy_plan$", buy_handler.buy_plan),
+        ("^select_plan:", buy_handler.select_plan),
         ("^admin_", admin_handler.admin_button),
     ]
     

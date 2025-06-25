@@ -18,12 +18,17 @@ REDIS_DB = int(os.getenv("REDIS_DB", 0))
 # Admin user IDs (comma-separated)
 ADMIN_IDS = [int(id_str) for id_str in os.getenv("ADMIN_IDS", "").split(",") if id_str]
 
+from enum import Enum, auto
+
 # Subscription plans
-class SubscriptionPlans:
+class SubscriptionPlans(str, Enum):
     FREE = "free"
     BRONZE = "bronze"
     SILVER = "silver"
     GOLD = "gold"
+    
+    def __str__(self):
+        return self.value
 
 # Plan limits
 PLAN_LIMITS = {

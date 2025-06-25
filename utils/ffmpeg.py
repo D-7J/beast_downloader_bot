@@ -239,6 +239,116 @@ async def add_watermark(
                 pass
         raise FFmpegError(f"خطا در پردازش ویدیو: {str(e)}")
 
+def process_video(
+    input_path: str,
+    output_path: str,
+    max_size: int = 50 * 1024 * 1024,  # 50MB default
+    max_duration: int = 10 * 60,  # 10 minutes default
+    max_bitrate: int = 2000,  # kbps
+    resolution: str = None,
+    format: str = 'mp4',
+    remove_audio: bool = False,
+    add_watermark: bool = False,
+    watermark_text: str = None
+) -> str:
+    """
+    Process a video file with various options.
+    
+    Args:
+        input_path: Path to input video file
+        output_path: Path to save processed video
+        max_size: Maximum output file size in bytes
+        max_duration: Maximum video duration in seconds
+        max_bitrate: Maximum video bitrate in kbps
+        resolution: Target resolution (e.g., '1280x720')
+        format: Output format/container (e.g., 'mp4', 'mkv')
+        remove_audio: Whether to remove audio track
+        add_watermark: Whether to add a watermark
+        watermark_text: Text to use as watermark
+        
+    Returns:
+        Path to processed video file
+    """
+    try:
+        # Get video info
+        video_info = get_video_info(input_path)
+        
+        # Build FFmpeg command
+        cmd = [
+            'ffmpeg',
+            '-y',  # Overwrite output file if it exists
+            '-i', input_path,
+        ]
+        
+        # Video codec options
+        cmd.extend([
+            '-c:v', 'libx264',
+            '-preset', 'medium',
+            '-crf', '23',
+            '-maxrate', f'{max_bitrate}k',
+            '-bufsize', f'{max_bitrate * 2}k',
+        ])
+        
+        # Handle resolution
+        if resolution:
+            cmd.extend(['-vf', f'scale={resolution}'])
+            
+        # Handle audio
+        if remove_audio:
+            cmd.extend(['-an'])
+        else:
+            cmd.extend(['-c:a', 'aac', '-b:a', '128k'])
+            
+        # Add watermark if requested
+        if add_watermark and watermark_text:
+            # Simple centered watermark
+            cmd.extend([
+                '-vf', f"drawtext=text='{watermark_text}':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=24:fontcolor=white@0.5:box=1:boxcolor=black@0.5"
+            ])
+            
+        # Set output format and path
+        cmd.extend(['-f', format, output_path])
+        
+        # Run FFmpeg
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        
+        # Verify output file
+        if not os.path.exists(output_path):
+            raise FFmpegError("Output file was not created")
+            
+        # Check output size
+        output_size = os.path.getsize(output_path)
+        if output_size > max_size:
+            # If output is too big, try again with lower quality
+            return process_video(
+                input_path,
+                output_path,
+                max_size,
+                max_duration,
+                int(max_bitrate * 0.8),  # Reduce bitrate
+                resolution,
+                format,
+                remove_audio,
+                add_watermark,
+                watermark_text
+            )
+            
+        return output_path
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFmpeg error: {e.stderr}")
+        raise FFmpegError(f"Video processing failed: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Error processing video: {str(e)}")
+        raise FFmpegError(f"Video processing failed: {str(e)}")
+
+
 def get_supported_formats() -> list:
     """Get list of supported video/audio formats"""
     try:

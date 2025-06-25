@@ -53,7 +53,8 @@ class Subscription(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    plan = Column(Enum(SubscriptionPlans), default=SubscriptionPlans.FREE, nullable=False)
+    plan = Column(Enum(SubscriptionPlans, values_callable=lambda x: [e.value for e in SubscriptionPlans]), 
+                 default=SubscriptionPlans.FREE, nullable=False)
     start_date = Column(DateTime(timezone=True), server_default=func.now())
     end_date = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True)
@@ -99,6 +100,9 @@ class PaymentStatus(str, enum.Enum):
     PENDING = "pending"
     COMPLETED = "completed"
     FAILED = "failed"
+    
+    def __str__(self):
+        return self.value
     CANCELED = "canceled"
 
 class Payment(Base):
@@ -107,9 +111,11 @@ class Payment(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    amount = Column(Integer, nullable=False)  # in Rials
-    plan = Column(Enum(SubscriptionPlans), nullable=False)
-    status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING, nullable=False)
+    amount = Column(Integer, nullable=False)
+    plan = Column(Enum(SubscriptionPlans, values_callable=lambda x: [e.value for e in SubscriptionPlans]), 
+                 nullable=False)
+    status = Column(Enum(PaymentStatus, values_callable=lambda x: [e.value for e in PaymentStatus]), 
+                   default=PaymentStatus.PENDING, nullable=False)
     payment_date = Column(DateTime(timezone=True), server_default=func.now())
     transaction_id = Column(String, unique=True, nullable=True)
     description = Column(String, nullable=True)

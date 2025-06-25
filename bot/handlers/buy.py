@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ContextTypes, CallbackQueryHandler
+from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler
 from telegram.constants import ParseMode
 
 from database import create_payment, get_user, get_user_subscription, update_subscription_plan
@@ -35,6 +35,8 @@ async def buy_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(db, update.effective_user.id)
     
     if not user:
+        print(f"User not found for telegram_id: {update.effective_user.id}")
+        print(f"All users in DB: {[u.telegram_id for u in db.query(User).all()]}")
         error_text = "خطا در یافتن اطلاعات کاربر. لطفا دوباره امتحان کنید."
         if query:
             await query.answer(error_text, show_alert=True)
@@ -147,55 +149,57 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    # Get selected plan
-    plan = query.data.split(":")[1]
-    
-    # Get plan info
-    plan_info = get_plan_display_info(plan)
-    
-    # Create payment record
-    db = context.bot_data["db"]
-    user = get_user(db, update.effective_user.id)
-    
-    if not user:
-        await query.answer("خطا در یافتن اطلاعات کاربر. لطفا دوباره امتحان کنید.", show_alert=True)
-        return
-    
-    # Create payment record
-    payment = create_payment(
-        db=db,
-        user_id=user.id,
-        amount=plan_info["price"],
-        plan=plan
-    )
-    
-    # Prepare payment instructions
-    text = f"💳 *پرداخت اشتراک {plan_info['name']}*\n\n"
-    text += f"مبلغ قابل پرداخت: *{format_price(plan_info['price'])} تومان*\n\n"
-    text += "لطفا مبلغ فوق را به شماره کارت زیر واریز کنید:\n"
-    text += f"`{PAYMENT_CARD_NUMBER}`\n\n"
-    text += f"👤 صاحب حساب: {PAYMENT_CARD_OWNER}\n\n"
-    text += "پس از واریز، رسید پرداخت را برای پشتیبانی ارسال کنید.\n"
-    text += "پس از تایید پرداخت، اشتراک شما فعال خواهد شد.\n\n"
-    text += f"شناسه پرداخت: `{payment.id}`\n"
-    text += "📞 پشتیبانی: @your_support_username"
-    
-    # Create inline keyboard
-    keyboard = [
-        [
-            InlineKeyboardButton("🔙 بازگشت به لیست پلن‌ها", callback_data="buy_plan"),
-            InlineKeyboardButton("🏠 منوی اصلی", callback_data="start")
-        ]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Send payment instructions
-    await query.message.edit_text(
-        text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        # Get selected plan
+        plan = query.data.split(":")[1]
+        
+        # Get plan info
+        plan_info = get_plan_display_info(plan)
+        
+        # Create payment record
+        db = context.bot_data["db"]
+        user = get_user(db, update.effective_user.id)
+        
+        if not user:
+            # Add debug logging
+            print(f"User not found for telegram_id: {update.effective_user.id}")
+            print(f"All users in DB: {[u.telegram_id for u in db.query(User).all()]}")
+            await query.answer("خطا در یافتن اطلاعات کاربر. لطفا دوباره امتحان کنید.", show_alert=True)
+            return
+        
+        # Create payment record
+        payment = create_payment(
+            db=db,
+            user_id=user.id,
+            amount=plan_info["price"],
+            plan=plan
+        )
+        
+        # Prepare payment instructions
+        text = f"💳 *پرداخت اشتراک {plan_info['name']}*\n\n"
+        text += f"مبلغ قابل پرداخت: *{format_price(plan_info['price'])} تومان*\n\n"
+        text += "لطفا مبلغ فوق را به شماره کارت زیر واریز کنید:\n"
+        text += f"`{PAYMENT_CARD_NUMBER}`\n\n"
+        text += f"👤 صاحب حساب: {PAYMENT_CARD_OWNER}\n\n"
+        text += "پس از واریز، رسید پرداخت را برای پشتیبانی ارسال کنید.\n"
+        text += "پس از تایید پرداخت، اشتراک شما فعال خواهد شد.\n\n"
+        text += f"شناسه پرداخت: `{payment.id}`\n"
+        
+        # Send the payment instructions by editing the message
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        print(f"Error in select_plan: {e}")
+        import traceback
+        traceback.print_exc()
+        await query.answer("خطا در پردازش درخواست. لطفا دوباره امتحان کنید.", show_alert=True)
+
+# Command handler for /buy
+def buy_handler():
+    """Handler for the /buy command."""
+    return CommandHandler('buy', buy_plan)
 
 # Create callback query handlers
 buy_plan_callback = CallbackQueryHandler(buy_plan, pattern="^buy_plan$")
